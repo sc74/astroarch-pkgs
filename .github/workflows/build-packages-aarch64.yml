@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - workflows   # ← retirer cette ligne une fois les tests terminés
+      - workflows
     paths:
       - 'packages/**/PKGBUILD'
       - 'packages/**/*.install'
@@ -13,14 +13,14 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: 'Nom du paquet à forcer (ex: indi-core), laisser vide pour détecter'
+        description: 'Name of the package to force (e.g., indi-core); leave blank to detect automatically'
         required: false
         default: ''
 
 jobs:
-  # ─── Étape 1 : Détecter les paquets modifiés ───────────────────────────────
+  # Detect modified packets
   detect-changes:
-    name: Détecter les paquets modifiés
+    name: Detect modified packets
     runs-on: ubuntu-latest
     outputs:
       packages: ${{ steps.detect.outputs.packages }}
@@ -29,30 +29,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2   # besoin du commit précédent pour le diff
+          fetch-depth: 2
 
-      - name: Détecter les paquets changés
+      - name: Detect modified packets
         id: detect
         run: |
-          # Si un paquet est forcé via workflow_dispatch
+          # If a package is forced via `workflow_dispatch`
           if [[ -n "${{ github.event.inputs.package }}" ]]; then
             PKG="${{ github.event.inputs.package }}"
             if [[ ! -d "packages/$PKG" ]]; then
-              echo "❌ Le paquet '$PKG' n'existe pas dans packages/"
+              echo "❌ The package ‘$PKG’ does not exist in packages/"
               exit 1
             fi
             PKGS_JSON=$(echo "$PKG" | jq -R -s -c 'split("\n") | map(select(length > 0))')
           else
-            # Détecter les dossiers modifiés sous packages/
-            # Gestion du premier commit (pas de HEAD~1)
+            # Detect modified files in packages/
+            # Managing the First Commit (no HEAD~1)
             if git rev-parse HEAD~1 &>/dev/null; then
               BASE="HEAD~1"
             else
-              BASE="$(git hash-object -t tree /dev/null)"  # arbre vide
+              BASE="$(git hash-object -t tree /dev/null)"
             fi
 
-            # Le "|| true" empêche grep de tuer le script avec exit code 1
-            # quand aucun fichier sous packages/ n'est modifié
+            # The “|| true” prevents grep from terminating the script with an exit code of 1
+            # when no files in the packages/ directory have been modified
             CHANGED_DIRS=$(git diff --name-only "$BASE" HEAD \
               | { grep '^packages/' || true; } \
               | awk -F/ '{print $2}' \
@@ -60,7 +60,7 @@ jobs:
               | { grep -v '^$' || true; })
 
             if [[ -z "$CHANGED_DIRS" ]]; then
-              echo "Aucun paquet modifié détecté."
+              echo "No modified packages detected"
               echo "has_changes=false" >> "$GITHUB_OUTPUT"
               echo "packages=[]" >> "$GITHUB_OUTPUT"
               exit 0
@@ -69,18 +69,18 @@ jobs:
             PKGS_JSON=$(echo "$CHANGED_DIRS" | jq -R -s -c 'split("\n") | map(select(length > 0))')
           fi
 
-          echo "Paquets à construire : $PKGS_JSON"
+          echo "Packages to build : $PKGS_JSON"
           echo "packages=$PKGS_JSON" >> "$GITHUB_OUTPUT"
           echo "has_changes=true" >> "$GITHUB_OUTPUT"
 
-  # ─── Étape 2 : Build de chaque paquet en parallèle ─────────────────────────
+  # Build each package in parallel
   build:
     name: Build ${{ matrix.package }}
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false   # continuer les autres paquets si l'un échoue
+      fail-fast: false
       matrix:
         package: ${{ fromJson(needs.detect-changes.outputs.packages) }}
 
@@ -88,15 +88,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Vérifier que le PKGBUILD existe
+      - name: Check that the PKGBUILD exists
         run: |
           if [[ ! -f "packages/${{ matrix.package }}/PKGBUILD" ]]; then
-            echo "❌ Pas de PKGBUILD trouvé dans packages/${{ matrix.package }}/"
+            echo "❌ No PKGBUILD found in packages/${{ matrix.package }}/"
             exit 1
           fi
 
-      # QEMU permet d'exécuter des binaires aarch64 sur le runner x86_64
-      - name: Configurer QEMU pour aarch64
+      # QEMU allows you to run aarch64 binaries on an x86_64 runner
+      - name: Configure QEMU for aarch64
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
@@ -111,70 +111,68 @@ jobs:
             bash -c '
               set -euo pipefail
 
-              echo "==> Initialisation des clés pacman..."
+              echo "==> Initializing pacman keys..."
               pacman-key --init
               pacman-key --populate archlinuxarm
 
-              echo "==> Mise à jour du système..."
+              echo "==> System Update..."
               pacman -Syu --noconfirm
 
-              echo "==> Configuration locale..."
+              echo "==> Local configuration..."
               sed -i "s/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/" /etc/locale.gen
               locale-gen
               export LC_ALL=en_US.UTF-8
               export LANG=en_US.UTF-8
 
-              echo "==> Configuration pacman (SigLevel + dépôt custom)..."
+              echo "==> Pacman configuration (SigLevel + dépôt custom)..."
               sed -i "/SigLevel/d" /etc/pacman.conf
               sed -i "/\[options\]/a SigLevel = Never" /etc/pacman.conf
               printf "\n[astromatto]\nServer = http://astroarch.astromatto.com:9000/\$arch\n" >> /etc/pacman.conf
 
-              echo "==> Installation des dépendances de base..."
+              echo "==> Installing dependencies / core libraries ..."
               pacman -Syu --noconfirm base-devel sudo libftdi libraw
 
-              echo "==> Préparation de l utilisateur builder..."
+              echo "==> User Builder Setup..."
               useradd -m builder
               echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
               chown -R builder:builder /workspace
 
-              echo "==> Lancement du build makepkg..."
+              echo "==> Launching the makepkg build..."
               cd /workspace
               sudo -u builder makepkg -s --noconfirm --nocheck --log
 
-              echo "==> Build terminé !"
-              ls -lh *.pkg.tar.* 2>/dev/null || echo "Aucun .pkg.tar.* trouvé"
+              echo "==> Build complete !"
+              ls -lh *.pkg.tar.* 2>/dev/null || echo "No .pkg.tar.* files found"
             '
 
-      - name: Lister les artefacts produits
+      - name: List the artifacts produced
         run: |
-          echo "Paquets construits :"
+          echo "Built packages :"
           ls -lh packages/${{ matrix.package }}/*.pkg.tar.* 2>/dev/null \
-            || echo "Aucun paquet trouvé — vérifier les logs ci-dessus."
+            || echo "No package found — check the logs above"
 
-      # Sauvegarde du paquet comme artefact GitHub (90 jours de rétention)
+      # Save the package as a GitHub artifact (14-day retention period))
       - name: Upload artefact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.package }}-aarch64
           path: packages/${{ matrix.package }}/*.pkg.tar.*
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 14
 
-  # ─── Étape 3 (optionnelle) : Déployer sur le dépôt pacman ──────────────────
-  # Décommentez et configurez ce job si vous voulez pousser automatiquement
-  # les paquets vers votre serveur astromatto.
+  # Deploy to the Pacman repository
   #
   # deploy:
-  #   name: Déployer sur le dépôt
+  #   name: Deploy to the repository
   #   needs: build
   #   runs-on: ubuntu-latest
   #   steps:
-  #     - name: Télécharger tous les artefacts
+  #     - name: Download all artifacts
   #       uses: actions/download-artifact@v4
   #       with:
   #         path: dist/
   #
-  #     - name: Déployer via SCP/rsync
+  #     - name: Deploy via SCP/rsync
   #       env:
   #         DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
   #         DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -187,7 +185,7 @@ jobs:
   #           scp -i /tmp/deploy_key -o StrictHostKeyChecking=no \
   #             "$pkg" "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/aarch64/"
   #         done
-  #         # Regénérer la base du dépôt pacman côté serveur
+  #         # Regenerate the server-side Pacman package database
   #         ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no \
   #           "${DEPLOY_USER}@${DEPLOY_HOST}" \
   #           "cd ${DEPLOY_PATH}/aarch64 && repo-add astromatto.db.tar.gz *.pkg.tar.*"
