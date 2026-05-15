@@ -3,7 +3,7 @@ name: Build AArch64 Packages
 on:
   push:
     branches:
-      - main
+      - worflows
     paths:
       - 'packages/**/PKGBUILD'
       - 'packages/**/*.install'
