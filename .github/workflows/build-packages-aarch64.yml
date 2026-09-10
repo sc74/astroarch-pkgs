@@ -115,12 +115,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: bootstrap
-        run: pacman-key --init && pacman-key --populate archlinuxarm && pacman -Syu --noconfirm
+        run: pacman-key --init && pacman-key --populate archlinuxarm && pacman -Syu --noconfirm nodejs
       - uses: actions/checkout@v4
 
       - name: Build libindi
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         run: bash ci/build-package.sh libindi
 
       - name: Upload artifact
