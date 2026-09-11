@@ -103,7 +103,7 @@ jobs:
           path: packages/simplejpeg/*.pkg.tar.xz
           retention-days: 14
 
-  # ── Job 3b: build libindi first (if changed) ──────────────────────────────
+  # ── Job 3b: build INDI first (if changed) ──────────────────────────────
   # libindi is not available in Arch's official repos; phd2 depends on it.
   build-libindi:
     name: Build libindi
@@ -129,6 +129,48 @@ jobs:
           name: pkg-libindi
           path: packages/libindi/*.pkg.tar.xz
           retention-days: 14
+
+  build-indi-3rdparty-libs:
+    name: "Build indi-3rdparty-libs [${{ matrix.arch }}]"
+    needs: [detect, build-libindi]
+    if: |
+      always() &&
+      (needs.detect.outputs.has_libindi == 'true' || needs.detect.outputs.has_3rdparty_libs == 'true') &&
+      (needs.build-libindi.result == 'success' || needs.build-libindi.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect.outputs.arch_matrix) }}
+    runs-on: ${{ fromJson(matrix.runner) }}
+    container:
+      image: ${{ matrix.image }}
+    timeout-minutes: 60
+    steps:
+      - name: Bootstrap pacman keyring
+        if: matrix.arch == 'aarch64'
+        run: pacman-key --init && pacman-key --populate archlinuxarm && pacman -Syu --noconfirm
+
+      - uses: actions/checkout@v4
+
+      - name: Download libindi artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: pkg-libindi-${{ matrix.arch }}
+          path: /tmp/local-pkgs/
+
+      - name: Build indi-3rdparty-libs
+        env:
+          LOCAL_PKG_DIR: /tmp/local-pkgs
+        run: bash ci/build-package.sh indi-3rdparty-libs
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-indi-3rdparty-libs-${{ matrix.arch }}
+          path: packages/indi-3rdparty-libs/${{ matrix.pkg_glob }}
+          if-no-files-found: error
+          retention-days: 14
+
 
   # ── Job 3c: build phd2 after libindi ──────────────────────────────────────
   # "skipped" upstream jobs are treated as success, so this job still runs
