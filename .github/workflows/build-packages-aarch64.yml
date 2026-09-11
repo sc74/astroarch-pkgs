@@ -114,7 +114,7 @@ jobs:
       image: ghcr.io/devducks/archlinuxarm:latest
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: bootstrap
         run: pacman-key --init && pacman-key --populate archlinuxarm && pacman -Syu --noconfirm
