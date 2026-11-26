@@ -1,7 +1,8 @@
 pkgname=siril
-pkgver=1.4.4
+pkgver=1.4.5
 pkgrel=1
 pkgdesc="An astronomical image processing software for Linux. (IRIS clone)"
+url="https://gitlab.com/free-astro/siril"
 arch=('aarch64' 'x86_64')
 license=('GPL3')
 depends=(cfitsio
@@ -26,31 +27,31 @@ depends=(cfitsio
          opencv
          wcslib)
 makedepends=(cmake
+             git
              meson
              ninja)
 optdepends=('ffmpeg: For AVI export')
 options=(!lto)
 
-source=("https://free-astro.org/download/siril-${pkgver}.tar.bz2"
-        'meson.build'
-)
-sha256sums=('b1682f2129d2e06b034445ed225766a06e38cfaa7451b92d606a3ee36eb077a4'
-            'SKIP'
-)
+### Restore the commented-out lines when OpenCV 5 is released in a higher version
+#source=("https://free-astro.org/download/siril-${pkgver}.tar.bz2")
+#sha256sums=('b1682f2129d2e06b034445ed225766a06e38cfaa7451b92d606a3ee36eb077a4')
 
-# To be removed in the next version with OpenCV 5 #####
-prepare() {
-cp meson.build $srcdir/$pkgname-$pkgver/meson.build
-}
-######
+### To be removed when OpenCV 5 is released in a higher version
+### Branch 1.4 (between 1.4.5 and 1.4.6) pinned to a commit that has the OpenCV 5 fixes
+source=("git+$url.git#commit=42ec35c65442a62458580432bb2e2d73c8a1e245")
+sha256sums=('SKIP')
+###
 
 build() {
-  cd "$srcdir/$pkgname-$pkgver/"
+  #cd "$srcdir/$pkgname-$pkgver/"
+  cd "$srcdir/$pkgname/"
   meson setup --prefix /usr --buildtype release _build
   ninja -C _build
 }
 
 package() {
-  cd "$srcdir/$pkgname-$pkgver/"
+  #cd "$srcdir/$pkgname-$pkgver/"
+  cd "$srcdir/$pkgname/"
   meson install -C _build --destdir "$pkgdir"
 }
